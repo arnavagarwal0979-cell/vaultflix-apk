@@ -14,18 +14,12 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Install tools
+      - name: Install Android Build Tools
         run: |
-          npm install -g @bubblewrap/cli
-          sudo apt-get install -y expect
+          sdkmanager "build-tools;34.0.0" "platforms;android-34" "platform-tools"
 
       - name: Generate Signing Key
         run: |
@@ -40,97 +34,224 @@ jobs:
             -dname "CN=Vaultflix, OU=App, O=Vaultflix, L=IN, ST=IN, C=IN" \
             -noprompt
 
-      - name: Configure Bubblewrap paths
+      - name: Create TWA Android Project
         run: |
-          JAVA_PATH=$(dirname $(dirname $(readlink -f $(which java))))
-          ANDROID_PATH="${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}"
-          mkdir -p ~/.bubblewrap
-          echo "{\"jdkPath\":\"$JAVA_PATH\",\"androidSdkPath\":\"$ANDROID_PATH\"}" > ~/.bubblewrap/config.json
-          echo "JDK: $JAVA_PATH"
-          echo "Android: $ANDROID_PATH"
+          mkdir -p twa-app/app/src/main/res/values
+          mkdir -p twa-app/app/src/main/res/xml
+          mkdir -p twa-app/app/src/main/java/app/vaultflix/twa
+          mkdir -p twa-app/app/src/main/assets
 
-      - name: Create TWA Manifest
-        run: |
-          cat > twa-manifest.json << 'MANIFEST'
-          {
-            "packageId": "app.vaultflix.twa",
-            "host": "vaultflix.netlify.app",
-            "name": "Vaultflix",
-            "launcherName": "Vaultflix",
-            "display": "standalone",
-            "orientation": "any",
-            "themeColor": "#e50914",
-            "navigationColor": "#050505",
-            "navigationColorDark": "#050505",
-            "navigationDividerColor": "#050505",
-            "navigationDividerColorDark": "#050505",
-            "backgroundColor": "#050505",
-            "enableNotifications": false,
-            "startUrl": "/",
-            "iconUrl": "https://vaultflix.netlify.app/icon-512.png",
-            "maskableIconUrl": "https://vaultflix.netlify.app/icon-maskable-512.png",
-            "monochromeIconUrl": "https://vaultflix.netlify.app/icon-512.png",
-            "splashScreenFadeOutDuration": 300,
-            "signingKey": {
-              "path": "../vaultflix.keystore",
-              "alias": "vaultflix"
-            },
-            "appVersionCode": 1,
-            "appVersionName": "1.0.0",
-            "shortcuts": [],
-            "generatorApp": "bubblewrap-cli",
-            "webManifestUrl": "https://vaultflix.netlify.app/manifest.json",
-            "fallbackType": "customtabs",
-            "features": {},
-            "alphaDependencies": { "enabled": false },
-            "enableSiteSettingsShortcut": true,
-            "isChromeOSOnly": false,
-            "isMetaQuest": false,
-            "fullScopeUrl": "https://vaultflix.netlify.app/",
-            "minSdkVersion": 21,
-            "targetSdkVersion": 34,
-            "shareTarget": null,
-            "additionalTrustedOrigins": [],
-            "retainedBundles": []
+          # settings.gradle
+          cat > twa-app/settings.gradle << 'GRADLE'
+          include ':app'
+          GRADLE
+
+          # Root build.gradle
+          cat > twa-app/build.gradle << 'GRADLE'
+          buildscript {
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+              dependencies {
+                  classpath 'com.android.tools.build:gradle:8.2.0'
+              }
           }
-          MANIFEST
-
-      - name: Build APK with expect
-        run: |
-          expect << 'EXPECT'
-          set timeout 600
-          spawn bubblewrap build --skipPwaValidation
-          expect {
-            "install the JDK" { send "n\r"; exp_continue }
-            "regenerate your project" { send "n\r"; exp_continue }
-            "Password for the Key Store" { send "vaultflix123\r"; exp_continue }
-            "Password for the Key:" { send "vaultflix123\r"; exp_continue }
-            eof
+          allprojects {
+              repositories {
+                  google()
+                  mavenCentral()
+              }
           }
-          EXPECT
+          GRADLE
 
-      - name: Find APK anywhere
-        run: |
-          echo "=== Full directory tree ==="
-          find / -name "*.apk" 2>/dev/null | grep -v "/proc" | grep -v "/sys"
-          echo "=== Build output dirs ==="
-          find / -path "*/app/build/outputs*" 2>/dev/null | grep -v "/proc" | grep -v "/sys" | head -20
-          echo "=== Current dir ==="
-          ls -la
-          echo "=== Home dir ==="
-          ls -la ~/
+          # gradle wrapper properties
+          mkdir -p twa-app/gradle/wrapper
+          cat > twa-app/gradle/wrapper/gradle-wrapper.properties << 'PROPS'
+          distributionBase=GRADLE_USER_HOME
+          distributionPath=wrapper/dists
+          distributionUrl=https\://services.gradle.org/distributions/gradle-8.2-bin.zip
+          zipStoreBase=GRADLE_USER_HOME
+          zipStorePath=wrapper/dists
+          PROPS
 
-      - name: Copy APK
+          # Install gradle wrapper
+          cd twa-app
+          gradle wrapper --gradle-version 8.2 || true
+          cd ..
+
+          # app/build.gradle
+          cat > twa-app/app/build.gradle << 'GRADLE'
+          plugins {
+              id 'com.android.application'
+          }
+          android {
+              compileSdk 34
+              namespace 'app.vaultflix.twa'
+              defaultConfig {
+                  applicationId 'app.vaultflix.twa'
+                  minSdk 21
+                  targetSdk 34
+                  versionCode 1
+                  versionName '1.0.0'
+              }
+              signingConfigs {
+                  release {
+                      storeFile file('../../vaultflix.keystore')
+                      storePassword 'vaultflix123'
+                      keyAlias 'vaultflix'
+                      keyPassword 'vaultflix123'
+                  }
+              }
+              buildTypes {
+                  release {
+                      minifyEnabled false
+                      signingConfig signingConfigs.release
+                  }
+              }
+          }
+          dependencies {
+              implementation 'com.google.androidbrowserhelper:androidbrowserhelper:2.5.0'
+          }
+          GRADLE
+
+          # AndroidManifest.xml
+          cat > twa-app/app/src/main/AndroidManifest.xml << 'XML'
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <uses-permission android:name="android.permission.INTERNET" />
+              <application
+                  android:label="Vaultflix"
+                  android:icon="@mipmap/ic_launcher"
+                  android:theme="@style/AppTheme"
+                  android:allowBackup="true">
+                  <activity
+                      android:name="com.google.androidbrowserhelper.trusted.LauncherActivity"
+                      android:label="Vaultflix"
+                      android:exported="true">
+                      <meta-data
+                          android:name="android.support.customtabs.trusted.DEFAULT_URL"
+                          android:value="https://vaultflix.netlify.app/" />
+                      <meta-data
+                          android:name="android.support.customtabs.trusted.STATUS_BAR_COLOR"
+                          android:resource="@color/colorPrimary" />
+                      <meta-data
+                          android:name="android.support.customtabs.trusted.NAVIGATION_BAR_COLOR"
+                          android:resource="@color/colorPrimary" />
+                      <meta-data
+                          android:name="android.support.customtabs.trusted.SPLASH_IMAGE_DRAWABLE"
+                          android:resource="@drawable/splash" />
+                      <meta-data
+                          android:name="android.support.customtabs.trusted.SPLASH_SCREEN_BACKGROUND_COLOR"
+                          android:resource="@color/backgroundColor" />
+                      <meta-data
+                          android:name="android.support.customtabs.trusted.SPLASH_SCREEN_FADE_OUT_DURATION"
+                          android:value="300" />
+                      <meta-data
+                          android:name="android.support.customtabs.trusted.FILE_PROVIDER_AUTHORITY"
+                          android:value="app.vaultflix.twa.fileprovider" />
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                      <intent-filter android:autoVerify="true">
+                          <action android:name="android.intent.action.VIEW"/>
+                          <category android:name="android.intent.category.DEFAULT" />
+                          <category android:name="android.intent.category.BROWSABLE"/>
+                          <data android:scheme="https" android:host="vaultflix.netlify.app"/>
+                      </intent-filter>
+                  </activity>
+                  <provider
+                      android:name="androidx.core.content.FileProvider"
+                      android:authorities="app.vaultflix.twa.fileprovider"
+                      android:exported="false"
+                      android:grantUriPermissions="true">
+                      <meta-data
+                          android:name="android.support.FILE_PROVIDER_PATHS"
+                          android:resource="@xml/filepaths" />
+                  </provider>
+              </application>
+          </manifest>
+          XML
+
+          # Colors
+          cat > twa-app/app/src/main/res/values/colors.xml << 'XML'
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <color name="colorPrimary">#e50914</color>
+              <color name="backgroundColor">#050505</color>
+          </resources>
+          XML
+
+          # Styles
+          cat > twa-app/app/src/main/res/values/styles.xml << 'XML'
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <style name="AppTheme" parent="Theme.AppCompat.NoActionBar">
+                  <item name="android:windowBackground">@color/backgroundColor</item>
+              </style>
+          </resources>
+          XML
+
+          # File paths
+          cat > twa-app/app/src/main/res/xml/filepaths.xml << 'XML'
+          <?xml version="1.0" encoding="utf-8"?>
+          <paths>
+              <files-path name="files" path="." />
+          </paths>
+          XML
+
+          # Strings
+          cat > twa-app/app/src/main/res/values/strings.xml << 'XML'
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <string name="app_name">Vaultflix</string>
+          </resources>
+          XML
+
+      - name: Download App Icon
         run: |
-          APK=$(find / -name "*.apk" 2>/dev/null | grep -v "/proc" | grep -v "/sys" | grep -v "node_modules" | head -1)
-          if [ -n "$APK" ]; then
-            cp "$APK" vaultflix-release.apk
-            echo "✅ Found: $APK"
-            ls -lh vaultflix-release.apk
-          else
-            echo "❌ No APK anywhere — build may have failed silently"
-            exit 1
-          fi
+          mkdir -p twa-app/app/src/main/res/mipmap-hdpi
+          mkdir -p twa-app/app/src/main/res/mipmap-mdpi
+          mkdir -p twa-app/app/src/main/res/mipmap-xhdpi
+          mkdir -p twa-app/app/src/main/res/mipmap-xxhdpi
+          mkdir -p twa-app/app/src/main/res/mipmap-xxxhdpi
+          mkdir -p twa-app/app/src/main/res/drawable
+
+          # Download icon
+          curl -L "https://vaultflix.netlify.app/icon-192.png" -o icon.png 2>/dev/null || \
+            convert -size 192x192 xc:#e50914 -fill white -draw "text 50,110 'VF'" icon.png
+
+          # Copy to all densities
+          cp icon.png twa-app/app/src/main/res/mipmap-hdpi/ic_launcher.png
+          cp icon.png twa-app/app/src/main/res/mipmap-mdpi/ic_launcher.png
+          cp icon.png twa-app/app/src/main/res/mipmap-xhdpi/ic_launcher.png
+          cp icon.png twa-app/app/src/main/res/mipmap-xxhdpi/ic_launcher.png
+          cp icon.png twa-app/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png
+
+          # Splash drawable (simple color)
+          cat > twa-app/app/src/main/res/drawable/splash.xml << 'XML'
+          <?xml version="1.0" encoding="utf-8"?>
+          <shape xmlns:android="http://schemas.android.com/apk/res/android">
+              <solid android:color="#050505"/>
+          </shape>
+          XML
+
+      - name: Build Release APK
+        run: |
+          cd twa-app
+          chmod +x gradlew 2>/dev/null || gradle wrapper
+          ./gradlew assembleRelease --no-daemon --stacktrace
+        env:
+          ANDROID_HOME: ${{ env.ANDROID_HOME }}
+
+      - name: Find and Copy APK
+        run: |
+          echo "=== Finding APK ==="
+          find twa-app -name "*.apk"
+          APK=$(find twa-app -name "*.apk" | head -1)
+          cp "$APK" vaultflix-release.apk
+          ls -lh vaultflix-release.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
