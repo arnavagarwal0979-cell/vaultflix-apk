@@ -22,8 +22,10 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Install Bubblewrap
-        run: npm install -g @bubblewrap/cli
+      - name: Install tools
+        run: |
+          npm install -g @bubblewrap/cli
+          sudo apt-get install -y expect
 
       - name: Generate Signing Key
         run: |
@@ -44,8 +46,6 @@ jobs:
           ANDROID_PATH="${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}"
           mkdir -p ~/.bubblewrap
           echo "{\"jdkPath\":\"$JAVA_PATH\",\"androidSdkPath\":\"$ANDROID_PATH\"}" > ~/.bubblewrap/config.json
-          echo "JDK: $JAVA_PATH"
-          echo "Android SDK: $ANDROID_PATH"
 
       - name: Create TWA Manifest
         run: |
@@ -93,25 +93,29 @@ jobs:
           }
           MANIFEST
 
-      - name: Build APK (all prompts answered)
+      - name: Build APK with expect
         run: |
-          # Answers for all interactive prompts in order:
-          # 1. "Would you like to regenerate your project?" -> n
-          # 2. "Password for the Key Store:" -> vaultflix123
-          # 3. "Password for the Key:" -> vaultflix123
-          printf "n\nvaultflix123\nvaultflix123\n" | bubblewrap build --skipPwaValidation
+          expect << 'EXPECT'
+          set timeout 300
+          spawn bubblewrap build --skipPwaValidation
+          expect {
+            "install the JDK" { send "n\r"; exp_continue }
+            "regenerate your project" { send "n\r"; exp_continue }
+            "Password for the Key Store" { send "vaultflix123\r"; exp_continue }
+            "Password for the Key:" { send "vaultflix123\r"; exp_continue }
+            eof
+          }
+          EXPECT
 
-      - name: Find and prepare APK
+      - name: Find APK
         run: |
-          echo "=== All APK files ==="
-          find . -name "*.apk" 2>/dev/null || echo "No APK found"
           APK=$(find . -name "*.apk" | head -1)
           if [ -n "$APK" ]; then
             cp "$APK" vaultflix-release.apk
-            echo "✅ APK ready: $APK"
-            ls -lh vaultflix-release.apk
+            echo "✅ APK: $APK ($(du -h "$APK" | cut -f1))"
           else
-            echo "❌ No APK found - showing build directory:"
+            echo "❌ No APK found"
+            find . -type f -name "*.apk" -o -name "*.aab" 2>/dev/null
             ls -la
             exit 1
           fi
