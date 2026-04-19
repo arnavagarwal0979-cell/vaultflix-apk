@@ -19,6 +19,9 @@ jobs:
         with:
           node-version: '20'
 
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
       - name: Install Bubblewrap
         run: npm install -g @bubblewrap/cli
 
@@ -34,6 +37,16 @@ jobs:
             -keypass vaultflix123 \
             -dname "CN=Vaultflix, OU=App, O=Vaultflix, L=IN, ST=IN, C=IN" \
             -noprompt
+
+      - name: Configure Bubblewrap (skip JDK prompt)
+        run: |
+          mkdir -p ~/.bubblewrap
+          cat > ~/.bubblewrap/config.json << 'CONFIG'
+          {
+            "jdkPath": "/opt/hostedtoolcache/Java_Temurin_jdk/17.0.14-7/x64",
+            "androidSdkPath": "/usr/local/lib/android/sdk"
+          }
+          CONFIG
 
       - name: Create TWA Manifest
         run: |
@@ -68,9 +81,7 @@ jobs:
             "webManifestUrl": "https://vaultflix.netlify.app/manifest.json",
             "fallbackType": "customtabs",
             "features": {},
-            "alphaDependencies": {
-              "enabled": false
-            },
+            "alphaDependencies": { "enabled": false },
             "enableSiteSettingsShortcut": true,
             "isChromeOSOnly": false,
             "isMetaQuest": false,
@@ -83,30 +94,30 @@ jobs:
           }
           MANIFEST
 
-      - name: Initialize Bubblewrap Project
-        run: bubblewrap build --skipPwaValidation
-
-      - name: Sign APK
+      - name: Build APK
         run: |
-          # Find the unsigned APK
+          echo "n" | bubblewrap build --skipPwaValidation
+        env:
+          JAVA_HOME: ${{ env.JAVA_HOME }}
+
+      - name: Find and prepare APK
+        run: |
+          echo "=== Searching for APK ==="
+          find . -name "*.apk" 2>/dev/null
           APK=$(find . -name "*.apk" | head -1)
-          echo "Found APK: $APK"
-          # Sign it
-          jarsigner -verbose \
-            -sigalg SHA256withRSA \
-            -digestalg SHA-256 \
-            -keystore vaultflix.keystore \
-            -storepass vaultflix123 \
-            -keypass vaultflix123 \
-            "$APK" vaultflix
-          # Zipalign
-          $ANDROID_HOME/build-tools/*/zipalign -v 4 "$APK" vaultflix-signed.apk || cp "$APK" vaultflix-signed.apk
+          if [ -n "$APK" ]; then
+            cp "$APK" vaultflix-release.apk
+            echo "APK found: $APK"
+          else
+            echo "No APK found!"
+            exit 1
+          fi
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: Vaultflix-APK
-          path: vaultflix-signed.apk
+          path: vaultflix-release.apk
           retention-days: 30
 
       - name: Upload Keystore
