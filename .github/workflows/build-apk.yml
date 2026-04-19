@@ -167,11 +167,38 @@ jobs:
         env:
           ANDROID_HOME: ${{ env.ANDROID_HOME }}
 
+      - name: Get SHA256 Fingerprint
+        run: |
+          echo "=== YOUR SHA256 FINGERPRINT ==="
+          keytool -list -v -keystore vaultflix.keystore -alias vaultflix -storepass vaultflix123 2>/dev/null | grep "SHA256:"
+          echo "================================"
+          FP=$(keytool -list -v -keystore vaultflix.keystore -alias vaultflix -storepass vaultflix123 2>/dev/null | grep "SHA256:" | sed 's/.*SHA256: //')
+          echo "Fingerprint: $FP"
+          # Create assetlinks.json
+          cat > assetlinks.json << ASSET
+          [{
+            "relation": ["delegate_permission/common.handle_all_urls"],
+            "target": {
+              "namespace": "android_app",
+              "package_name": "app.vaultflix.twa",
+              "sha256_cert_fingerprints": ["$FP"]
+            }
+          }]
+          ASSET
+          cat assetlinks.json
+
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: Vaultflix-APK
           path: app/app/build/outputs/apk/release/app-release.apk
+          retention-days: 30
+
+      - name: Upload assetlinks.json
+        uses: actions/upload-artifact@v4
+        with:
+          name: assetlinks-json
+          path: assetlinks.json
           retention-days: 30
 
       - name: Upload Keystore
