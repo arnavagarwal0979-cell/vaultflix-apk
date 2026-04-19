@@ -38,15 +38,14 @@ jobs:
             -dname "CN=Vaultflix, OU=App, O=Vaultflix, L=IN, ST=IN, C=IN" \
             -noprompt
 
-      - name: Configure Bubblewrap (skip JDK prompt)
+      - name: Configure Bubblewrap paths
         run: |
+          JAVA_PATH=$(dirname $(dirname $(readlink -f $(which java))))
+          ANDROID_PATH="${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}"
           mkdir -p ~/.bubblewrap
-          cat > ~/.bubblewrap/config.json << 'CONFIG'
-          {
-            "jdkPath": "/opt/hostedtoolcache/Java_Temurin_jdk/17.0.14-7/x64",
-            "androidSdkPath": "/usr/local/lib/android/sdk"
-          }
-          CONFIG
+          echo "{\"jdkPath\":\"$JAVA_PATH\",\"androidSdkPath\":\"$ANDROID_PATH\"}" > ~/.bubblewrap/config.json
+          echo "JDK: $JAVA_PATH"
+          echo "Android SDK: $ANDROID_PATH"
 
       - name: Create TWA Manifest
         run: |
@@ -94,22 +93,26 @@ jobs:
           }
           MANIFEST
 
-      - name: Build APK
+      - name: Build APK (all prompts answered)
         run: |
-          echo "n" | bubblewrap build --skipPwaValidation
-        env:
-          JAVA_HOME: ${{ env.JAVA_HOME }}
+          # Answers for all interactive prompts in order:
+          # 1. "Would you like to regenerate your project?" -> n
+          # 2. "Password for the Key Store:" -> vaultflix123
+          # 3. "Password for the Key:" -> vaultflix123
+          printf "n\nvaultflix123\nvaultflix123\n" | bubblewrap build --skipPwaValidation
 
       - name: Find and prepare APK
         run: |
-          echo "=== Searching for APK ==="
-          find . -name "*.apk" 2>/dev/null
+          echo "=== All APK files ==="
+          find . -name "*.apk" 2>/dev/null || echo "No APK found"
           APK=$(find . -name "*.apk" | head -1)
           if [ -n "$APK" ]; then
             cp "$APK" vaultflix-release.apk
-            echo "APK found: $APK"
+            echo "✅ APK ready: $APK"
+            ls -lh vaultflix-release.apk
           else
-            echo "No APK found!"
+            echo "❌ No APK found - showing build directory:"
+            ls -la
             exit 1
           fi
 
