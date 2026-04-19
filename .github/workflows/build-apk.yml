@@ -46,6 +46,8 @@ jobs:
           ANDROID_PATH="${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}"
           mkdir -p ~/.bubblewrap
           echo "{\"jdkPath\":\"$JAVA_PATH\",\"androidSdkPath\":\"$ANDROID_PATH\"}" > ~/.bubblewrap/config.json
+          echo "JDK: $JAVA_PATH"
+          echo "Android: $ANDROID_PATH"
 
       - name: Create TWA Manifest
         run: |
@@ -96,7 +98,7 @@ jobs:
       - name: Build APK with expect
         run: |
           expect << 'EXPECT'
-          set timeout 300
+          set timeout 600
           spawn bubblewrap build --skipPwaValidation
           expect {
             "install the JDK" { send "n\r"; exp_continue }
@@ -107,16 +109,26 @@ jobs:
           }
           EXPECT
 
-      - name: Find APK
+      - name: Find APK anywhere
         run: |
-          APK=$(find . -name "*.apk" | head -1)
+          echo "=== Full directory tree ==="
+          find / -name "*.apk" 2>/dev/null | grep -v "/proc" | grep -v "/sys"
+          echo "=== Build output dirs ==="
+          find / -path "*/app/build/outputs*" 2>/dev/null | grep -v "/proc" | grep -v "/sys" | head -20
+          echo "=== Current dir ==="
+          ls -la
+          echo "=== Home dir ==="
+          ls -la ~/
+
+      - name: Copy APK
+        run: |
+          APK=$(find / -name "*.apk" 2>/dev/null | grep -v "/proc" | grep -v "/sys" | grep -v "node_modules" | head -1)
           if [ -n "$APK" ]; then
             cp "$APK" vaultflix-release.apk
-            echo "✅ APK: $APK ($(du -h "$APK" | cut -f1))"
+            echo "✅ Found: $APK"
+            ls -lh vaultflix-release.apk
           else
-            echo "❌ No APK found"
-            find . -type f -name "*.apk" -o -name "*.aab" 2>/dev/null
-            ls -la
+            echo "❌ No APK anywhere — build may have failed silently"
             exit 1
           fi
 
