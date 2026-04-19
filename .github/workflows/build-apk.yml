@@ -1,7 +1,7 @@
 name: Build Vaultflix TWA APK
 
 on:
-  workflow_dispatch:  # Manual trigger — click "Run workflow" button
+  workflow_dispatch:
 
 jobs:
   build:
@@ -22,11 +22,22 @@ jobs:
       - name: Install Bubblewrap
         run: npm install -g @bubblewrap/cli
 
+      - name: Generate Signing Key
+        run: |
+          keytool -genkeypair \
+            -alias vaultflix \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 9125 \
+            -keystore vaultflix.keystore \
+            -storepass vaultflix123 \
+            -keypass vaultflix123 \
+            -dname "CN=Vaultflix, OU=App, O=Vaultflix, L=IN, ST=IN, C=IN" \
+            -noprompt
+
       - name: Initialize TWA Project
         run: |
-          mkdir vaultflix-twa && cd vaultflix-twa
           bubblewrap init --manifest https://vaultflix.netlify.app/manifest.json \
-            --directory . \
             --packageId app.vaultflix.twa \
             --name "Vaultflix" \
             --launcherName "Vaultflix" \
@@ -44,23 +55,8 @@ jobs:
             --minSdkVersion 21 \
             --targetSdkVersion 34
 
-      - name: Generate Signing Key
-        run: |
-          cd vaultflix-twa
-          keytool -genkeypair \
-            -alias vaultflix \
-            -keyalg RSA \
-            -keysize 2048 \
-            -validity 9125 \
-            -keystore vaultflix.keystore \
-            -storepass vaultflix123 \
-            -keypass vaultflix123 \
-            -dname "CN=Vaultflix, OU=App, O=Vaultflix, L=IN, ST=IN, C=IN" \
-            -noprompt
-
       - name: Build APK
         run: |
-          cd vaultflix-twa
           bubblewrap build \
             --signingKeyPath ./vaultflix.keystore \
             --signingKeyAlias vaultflix \
@@ -68,15 +64,15 @@ jobs:
             --signingKeyPassword vaultflix123
 
       - name: Upload APK
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: Vaultflix-APK
-          path: vaultflix-twa/app-release-signed.apk
+          path: app-release-signed.apk
           retention-days: 30
 
-      - name: Upload Keystore (SAVE THIS!)
-        uses: actions/upload-artifact@v3
+      - name: Upload Keystore
+        uses: actions/upload-artifact@v4
         with:
           name: Vaultflix-Keystore-SAVE-THIS
-          path: vaultflix-twa/vaultflix.keystore
+          path: vaultflix.keystore
           retention-days: 30
