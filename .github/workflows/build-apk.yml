@@ -9,15 +9,15 @@ jobs:
 
     steps:
       - name: Setup Java
-        uses: actions/setup-java@v3
+        uses: actions/setup-java@v4
         with:
           java-version: '17'
           distribution: 'temurin'
 
       - name: Setup Node.js
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
-          node-version: '18'
+          node-version: '20'
 
       - name: Install Bubblewrap
         run: npm install -g @bubblewrap/cli
@@ -35,39 +35,78 @@ jobs:
             -dname "CN=Vaultflix, OU=App, O=Vaultflix, L=IN, ST=IN, C=IN" \
             -noprompt
 
-      - name: Initialize TWA Project
+      - name: Create TWA Manifest
         run: |
-          bubblewrap init --manifest https://vaultflix.netlify.app/manifest.json \
-            --packageId app.vaultflix.twa \
-            --name "Vaultflix" \
-            --launcherName "Vaultflix" \
-            --display standalone \
-            --orientation any \
-            --themeColor "#e50914" \
-            --backgroundColor "#050505" \
-            --startUrl "https://vaultflix.netlify.app/" \
-            --iconUrl "https://vaultflix.netlify.app/icon-512.png" \
-            --maskableIconUrl "https://vaultflix.netlify.app/icon-maskable-512.png" \
-            --signingKeyPath ./vaultflix.keystore \
-            --signingKeyAlias vaultflix \
-            --signingKeyStorePassword vaultflix123 \
-            --signingKeyPassword vaultflix123 \
-            --minSdkVersion 21 \
-            --targetSdkVersion 34
+          cat > twa-manifest.json << 'MANIFEST'
+          {
+            "packageId": "app.vaultflix.twa",
+            "host": "vaultflix.netlify.app",
+            "name": "Vaultflix",
+            "launcherName": "Vaultflix",
+            "display": "standalone",
+            "orientation": "any",
+            "themeColor": "#e50914",
+            "navigationColor": "#050505",
+            "navigationColorDark": "#050505",
+            "navigationDividerColor": "#050505",
+            "navigationDividerColorDark": "#050505",
+            "backgroundColor": "#050505",
+            "enableNotifications": false,
+            "startUrl": "/",
+            "iconUrl": "https://vaultflix.netlify.app/icon-512.png",
+            "maskableIconUrl": "https://vaultflix.netlify.app/icon-maskable-512.png",
+            "monochromeIconUrl": "https://vaultflix.netlify.app/icon-512.png",
+            "splashScreenFadeOutDuration": 300,
+            "signingKey": {
+              "path": "../vaultflix.keystore",
+              "alias": "vaultflix"
+            },
+            "appVersionCode": 1,
+            "appVersionName": "1.0.0",
+            "shortcuts": [],
+            "generatorApp": "bubblewrap-cli",
+            "webManifestUrl": "https://vaultflix.netlify.app/manifest.json",
+            "fallbackType": "customtabs",
+            "features": {},
+            "alphaDependencies": {
+              "enabled": false
+            },
+            "enableSiteSettingsShortcut": true,
+            "isChromeOSOnly": false,
+            "isMetaQuest": false,
+            "fullScopeUrl": "https://vaultflix.netlify.app/",
+            "minSdkVersion": 21,
+            "targetSdkVersion": 34,
+            "shareTarget": null,
+            "additionalTrustedOrigins": [],
+            "retainedBundles": []
+          }
+          MANIFEST
 
-      - name: Build APK
+      - name: Initialize Bubblewrap Project
+        run: bubblewrap build --skipPwaValidation
+
+      - name: Sign APK
         run: |
-          bubblewrap build \
-            --signingKeyPath ./vaultflix.keystore \
-            --signingKeyAlias vaultflix \
-            --signingKeyStorePassword vaultflix123 \
-            --signingKeyPassword vaultflix123
+          # Find the unsigned APK
+          APK=$(find . -name "*.apk" | head -1)
+          echo "Found APK: $APK"
+          # Sign it
+          jarsigner -verbose \
+            -sigalg SHA256withRSA \
+            -digestalg SHA-256 \
+            -keystore vaultflix.keystore \
+            -storepass vaultflix123 \
+            -keypass vaultflix123 \
+            "$APK" vaultflix
+          # Zipalign
+          $ANDROID_HOME/build-tools/*/zipalign -v 4 "$APK" vaultflix-signed.apk || cp "$APK" vaultflix-signed.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: Vaultflix-APK
-          path: app-release-signed.apk
+          path: vaultflix-signed.apk
           retention-days: 30
 
       - name: Upload Keystore
